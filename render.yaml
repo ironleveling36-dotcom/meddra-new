@@ -1,0 +1,67 @@
+# render.yaml — Render Web Service Configuration
+# Deploy: https://render.com
+
+services:
+  - type: web
+    name: meddra-coding
+    env: python
+
+    buildCommand: |
+      pip install -r requirements.txt
+      python scripts/build_index.py
+      python -c "
+import os
+os.environ['FASTEMBED_CACHE_DIR'] = '/data/.cache'
+from fastembed import TextEmbedding
+print('Pre-downloading BAAI/bge-small-en-v1.5 ...')
+TextEmbedding(model_name='BAAI/bge-small-en-v1.5', cache_dir='/data/.cache')
+print('Model cached.')
+"
+
+    # Single uvicorn worker — avoids 4 workers each downloading fastembed simultaneously
+    # which caused OOM + 502/503 on Render's free/standard tier.
+    startCommand: uvicorn app.main:app --host 0.0.0.0 --port $PORT --workers 1
+
+    envVars:
+      - key: PYTHON_VERSION
+        value: "3.11"
+      - key: HOST
+        value: 0.0.0.0
+      - key: PORT
+        value: 8000
+      - key: ENABLE_SEMANTIC
+        value: "true"
+      - key: MEDDRA_DATA_DIR
+        value: "/data"
+      - key: FASTEMBED_CACHE_DIR
+        value: "/data/.cache"
+      - key: AI_ENABLED
+        value: "true"
+      - key: AI_API_BASE_URL
+        value: "https://api.hcnsec.cn/v1"
+      - key: AI_MODEL
+        value: "sensenova-6.8-flash-lite"
+      - key: RESPONSE_CACHE_TTL
+        value: "300"
+      - key: QUERY_CACHE_SIZE
+        value: "1024"
+      - key: LOG_LEVEL
+        value: "INFO"
+
+    # Secrets — set in Render dashboard
+    # AI_API_KEY: your SenseNova key
+
+    # Health check — always 200, even during model warmup
+    healthCheckPath: /health
+    healthCheckInterval: 30
+
+    plan: standard
+    numInstances: 1
+
+    disk:
+      name: meddra-data
+      mountPath: /data
+      sizeGB: 5
+
+    autoDeploy: true
+    branch: main
